@@ -5,14 +5,14 @@ compatibility_date = "2025-08-21"
 # شناسه‌ها را از خروجی create KV جایگزین کن
 [[kv_namespaces]]
 binding = "BOT_KV"
-id = "<YOUR_PROD_KV_ID>"
-preview_id = "<YOUR_PREVIEW_KV_ID>"
+id = "7130170a904345499ca9e8a96f777139"
+
 
 [vars]
 WEBHOOK_PATH = "/webhook"
 ALLOWED_UPDATES = "[\"message\"]"
-TELEGRAM_BOT_TOKEN = "<YOUR_BOT_TOKEN>"
-WEBHOOK_SECRET = "<YOUR_WEBHOOK_SECRET>"
+TELEGRAM_BOT_TOKEN = "8438379345:AAG4R7R6P49SuYKh5z-nf3I1V4OuLq87HvM"
+WEBHOOK_SECRET = "63f8c9d6fb1e5bcafdfc8d9196b1d9ea2feb1d39c7662d7b8265ca7526c6f543"
 
 [observability]
 enabled = true
