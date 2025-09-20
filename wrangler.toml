@@ -1,0 +1,16 @@
+name = "telegram-starter"
+main = "src/index.ts"
+compatibility_date = "2025-08-21"
+
+# شناسه‌ها را از خروجی create KV جایگزین کن
+[[kv_namespaces]]
+binding = "BOT_KV"
+id = "<YOUR_PROD_KV_ID>"
+preview_id = "<YOUR_PREVIEW_KV_ID>"
+
+[vars]
+WEBHOOK_PATH = "/webhook"
+ALLOWED_UPDATES = "[\"message\"]"
+
+[observability]
+enabled = true
