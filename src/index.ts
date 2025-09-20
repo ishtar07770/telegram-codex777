@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 
 export interface Env {
-  TELEGRAM_BOT_TOKEN: string; // set via wrangler secret
-  WEBHOOK_SECRET?: string;    // set via wrangler secret
+  TELEGRAM_BOT_TOKEN: string; // configured via wrangler vars
+  WEBHOOK_SECRET?: string;    // configured via wrangler vars
   BOT_KV: KVNamespace;
   WEBHOOK_PATH?: string;
 }

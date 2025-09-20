@@ -11,6 +11,8 @@ preview_id = "<YOUR_PREVIEW_KV_ID>"
 [vars]
 WEBHOOK_PATH = "/webhook"
 ALLOWED_UPDATES = "[\"message\"]"
+TELEGRAM_BOT_TOKEN = "<YOUR_BOT_TOKEN>"
+WEBHOOK_SECRET = "<YOUR_WEBHOOK_SECRET>"
 
 [observability]
 enabled = true
