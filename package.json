@@ -1,0 +1,22 @@
+{
+  "name": "telegram-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal Cloudflare Worker Telegram bot skeleton",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "telegram"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250920.0",
+    "wrangler": "^4.38.0"
+  }
+}
