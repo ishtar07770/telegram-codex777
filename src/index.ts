@@ -61,11 +61,15 @@ export default {
               ?.flatMap((item: any) => item?.content || [])
               ?.find((part: any) => part?.type === "output_text")?.text;
 
+      const answerText =
+        typeof outputText === "string" && outputText.trim().length > 0
+          ? outputText.trim()
+          : "پاسخی از مدل دریافت نشد.";
+
       return {
-        answer:
-          typeof outputText === "string" && outputText.trim().length > 0
-            ? outputText.trim()
-            : "پاسخی از مدل دریافت نشد.",
+        model,
+        input: prompt,
+        answer: answerText,
         usage: {
           input_tokens: data?.usage?.input_tokens ?? null,
           output_tokens: data?.usage?.output_tokens ?? null,
@@ -116,37 +120,20 @@ export default {
           return new Response("missing openai api key", { status: 500 });
         }
 
-        let assistantReply = "";
-        let usageSummary: string | null = null;
-
-        try {
-          const { answer, usage } = await invokeOpenAI(text);
-          assistantReply = answer;
-
-          if (usage.input_tokens != null || usage.output_tokens != null) {
-            const tokensInfo = [
-              usage.input_tokens != null ? `Input tokens: ${usage.input_tokens}` : null,
-              usage.output_tokens != null ? `Output tokens: ${usage.output_tokens}` : null,
-              usage.total_tokens != null ? `Total tokens: ${usage.total_tokens}` : null,
-            ].filter(Boolean);
-
-            if (tokensInfo.length > 0) {
-              usageSummary = tokensInfo.join(" | ");
-            }
-          }
-        } catch (error) {
-          console.error("Failed to call OpenAI API", error);
-          assistantReply =
-            "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.";
-        }
-
         const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const payload = {
-          chat_id: chatId,
-          text: usageSummary ? `${assistantReply}\n\n${usageSummary}` : assistantReply,
-        };
 
         try {
+          const openAiResult = await invokeOpenAI(text);
+          const answerText =
+            typeof openAiResult?.answer === "string" && openAiResult.answer.trim().length > 0
+              ? openAiResult.answer.trim()
+              : "پاسخی از مدل دریافت نشد.";
+
+          const payload = {
+            chat_id: chatId,
+            text: answerText,
+          };
+
           const response = await fetch(telegramApiUrl, {
             method: "POST",
             headers: {
@@ -157,17 +144,35 @@ export default {
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(
-              "Telegram sendMessage failed",
-              response.status,
-              errorText,
-            );
+            console.error("Telegram sendMessage failed", response.status, errorText);
           } else {
-            console.log("Echoed message to Telegram", payload);
+            console.log("Sent OpenAI response to Telegram", payload);
           }
         } catch (error) {
-          console.error("Failed to call Telegram sendMessage", error);
-          return new Response("telegram error", { status: 502 });
+          console.error("Failed to call OpenAI API", error);
+          const fallbackPayload = {
+            chat_id: chatId,
+            text: "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.",
+          };
+
+          try {
+            const response = await fetch(telegramApiUrl, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(fallbackPayload),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("Telegram sendMessage failed", response.status, errorText);
+              return new Response("telegram error", { status: 502 });
+            }
+          } catch (telegramError) {
+            console.error("Failed to call Telegram sendMessage", telegramError);
+            return new Response("telegram error", { status: 502 });
+          }
         }
       } else {
         console.log("No message to echo in update", update);
