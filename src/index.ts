@@ -48,30 +48,14 @@ export default {
         }
 
         const model = env.OPENAI_MODEL || "gpt-5-mini";
-
         const openaiRequestBody = {
           model,
-
-          input: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: `You are a helpful AI assistant replying in the same language the user used.\n\nUser message: ${text}`,
-                },
-              ],
-            },
-          ],
-
           input: [
             {
               role: "system",
               content: [
                 {
-
                   type: "input_text",
-
                   text: "You are a helpful AI assistant replying in the same language the user used.",
                 },
               ],
@@ -80,16 +64,12 @@ export default {
               role: "user",
               content: [
                 {
-
                   type: "input_text",
-
                   text,
                 },
               ],
             },
           ],
-
-
           max_output_tokens: 800,
         };
 
@@ -118,29 +98,15 @@ export default {
             const data = await openaiResponse.json();
 
             const responseText =
-              data?.output_text ||
-              data?.output?.flatMap((item: any) => item?.content || [])
-                ?.find((part: any) => part?.type === "output_text")?.text ||
-
-              data?.output?.[0]?.content?.find(
-                (part: any) => part?.type === "output_text",
-              )?.text;
-
-              data?.output?.[0]?.content?.[0]?.text;
-
+              typeof data?.output_text === "string" && data.output_text.trim().length
+                ? data.output_text.trim()
+                : data?.output?.flatMap((item: any) => item?.content || [])
+                    ?.find((part: any) => part?.type === "output_text")?.text;
 
             assistantReply =
               typeof responseText === "string" && responseText.trim().length > 0
                 ? responseText.trim()
                 : "پاسخی از مدل دریافت نشد.";
-
-
-            assistantReply =
-              data?.output_text ||
-              data?.output?.[0]?.content?.[0]?.text ||
-              "پاسخی از مدل دریافت نشد.";
-
-
           }
         } catch (error) {
           console.error("Failed to call OpenAI API", error);
