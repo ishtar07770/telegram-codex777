@@ -49,8 +49,34 @@ export default {
 
         const model = env.OPENAI_MODEL || "gpt-5-mini";
 
+
+        const quotaBackoffKey = "openai:quota:block-until";
+        const now = Date.now();
+        const blockUntilRaw = await env.BOT_KV.get(quotaBackoffKey);
+        const blockUntil = blockUntilRaw ? Number(blockUntilRaw) : undefined;
+
+        if (blockUntil && Number.isFinite(blockUntil) && now < blockUntil) {
+          const waitMinutes = Math.ceil((blockUntil - now) / 60000);
+          const assistantReply =
+            waitMinutes > 0
+              ? `سقف استفاده از سرویس هوش مصنوعی پر شده است. لطفاً ${waitMinutes} دقیقه دیگر دوباره تلاش کنید.`
+              : "سقف استفاده از سرویس هوش مصنوعی پر شده است. لطفاً کمی بعد دوباره تلاش کنید.";
+
+          try {
+            await sendTelegramMessage(env, chatId, assistantReply);
+          } catch (error) {
+            return new Response("telegram error", { status: 502 });
+          }
+
+          return new Response("ok", { status: 200 });
+        }
+
         const openaiRequestBody = {
           model,
+
+        const openaiRequestBody = {
+          model,
+
 
           input: [
             {
@@ -90,10 +116,14 @@ export default {
           ],
 
 
+
           max_output_tokens: 800,
         };
 
         let assistantReply = "";
+
+        let quotaExceeded = false;
+
 
         try {
           const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
@@ -151,27 +181,62 @@ export default {
         const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
         const payload = { chat_id: chatId, text: assistantReply };
 
+
         try {
-          const response = await fetch(telegramApiUrl, {
+          const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
             method: "POST",
             headers: {
               "content-type": "application/json",
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(openaiRequestBody),
           });
 
-          if (!response.ok) {
-            const errorText = await response.text();
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
             console.error(
-              "Telegram sendMessage failed",
-              response.status,
+              "OpenAI API request failed",
+              openaiResponse.status,
               errorText,
             );
+
+            if (openaiResponse.status === 429 && errorText.includes("insufficient_quota")) {
+              quotaExceeded = true;
+              assistantReply =
+                "سقف استفاده از سرویس هوش مصنوعی موقتا تکمیل شده است. لطفاً بعداً دوباره تلاش کنید.";
+            } else {
+              assistantReply =
+                "متاسفم، در حال حاضر نمی‌توانم پاسخ بدهم. لطفاً بعداً دوباره تلاش کنید.";
+            }
           } else {
-            console.log("Echoed message to Telegram", payload);
+            const data = await openaiResponse.json();
+            const responseText =
+              data?.output_text ||
+              data?.output?.flatMap((item: any) => item?.content || [])
+                ?.find((part: any) => part?.type === "output_text")?.text ||
+              data?.output?.[0]?.content?.find(
+                (part: any) => part?.type === "output_text",
+              )?.text;
+
+            assistantReply =
+              typeof responseText === "string" && responseText.trim().length > 0
+                ? responseText.trim()
+                : "پاسخی از مدل دریافت نشد.";
           }
         } catch (error) {
-          console.error("Failed to call Telegram sendMessage", error);
+          console.error("Failed to call OpenAI API", error);
+          assistantReply =
+            "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.";
+        }
+
+        if (quotaExceeded) {
+          const backoffUntil = (Date.now() + 60 * 60 * 1000).toString();
+          await env.BOT_KV.put(quotaBackoffKey, backoffUntil, { expirationTtl: 60 * 60 * 2 });
+        }
+
+        try {
+          await sendTelegramMessage(env, chatId, assistantReply);
+        } catch (error) {
           return new Response("telegram error", { status: 502 });
         }
       } else {
@@ -184,3 +249,28 @@ export default {
     return new Response("not found", { status: 404 });
   },
 };
+
+async function sendTelegramMessage(env: Env, chatId: number, text: string) {
+  const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const payload = { chat_id: chatId, text };
+
+  try {
+    const response = await fetch(telegramApiUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Telegram sendMessage failed", response.status, errorText);
+    } else {
+      console.log("Sent message to Telegram", payload);
+    }
+  } catch (error) {
+    console.error("Failed to call Telegram sendMessage", error);
+    throw error;
+  }
+}
