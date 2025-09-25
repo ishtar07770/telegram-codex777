@@ -13,6 +13,75 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
 
+    const invokeOpenAI = async (prompt: string) => {
+      const model = env.OPENAI_MODEL || "gpt-4o-mini";
+      const openaiRequestBody = {
+        model,
+        input: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: "You are a helpful AI assistant replying in the same language the user used.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      };
+
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(openaiRequestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI request failed (${response.status}): ${errorText}`);
+      }
+
+      const data: any = await response.json();
+      const outputText =
+        typeof data?.output_text === "string" && data.output_text.trim().length > 0
+          ? data.output_text.trim()
+          : data?.output
+              ?.flatMap((item: any) => item?.content || [])
+              ?.find((part: any) => part?.type === "output_text")?.text;
+
+      return {
+        answer:
+          typeof outputText === "string" && outputText.trim().length > 0
+            ? outputText.trim()
+            : "پاسخی از مدل دریافت نشد.",
+        usage: {
+          input_tokens: data?.usage?.input_tokens ?? null,
+          output_tokens: data?.usage?.output_tokens ?? null,
+          total_tokens:
+            data?.usage?.input_tokens != null && data?.usage?.output_tokens != null
+              ? data.usage.input_tokens + data.usage.output_tokens
+              : null,
+        },
+        meta: {
+          id: data?.id ?? null,
+          created: data?.created ?? null,
+          stop_reason: data?.output?.[0]?.stop_reason ?? data?.output?.[0]?.finish_reason ?? null,
+        },
+      };
+    };
+
     if (req.method === "GET" && url.pathname === "/") {
       return new Response("ok", { status: 200 });
     }
@@ -47,66 +116,23 @@ export default {
           return new Response("missing openai api key", { status: 500 });
         }
 
-        const model = env.OPENAI_MODEL || "gpt-4-mini";
-        const openaiRequestBody = {
-          model,
-          input: [
-            {
-              role: "system",
-              content: [
-                {
-                  type: "input_text",
-                  text: "You are a helpful AI assistant replying in the same language the user used.",
-                },
-              ],
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text,
-                },
-              ],
-            },
-          ],
-          max_output_tokens: 800,
-        };
-
         let assistantReply = "";
+        let usageSummary: string | null = null;
 
         try {
-          const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-            },
-            body: JSON.stringify(openaiRequestBody),
-          });
+          const { answer, usage } = await invokeOpenAI(text);
+          assistantReply = answer;
 
-          if (!openaiResponse.ok) {
-            const errorText = await openaiResponse.text();
-            console.error(
-              "OpenAI API request failed",
-              openaiResponse.status,
-              errorText,
-            );
-            assistantReply =
-              "متاسفم، در حال حاضر نمی‌توانم پاسخ بدهم. لطفاً بعداً دوباره تلاش کنید.";
-          } else {
-            const data = await openaiResponse.json();
+          if (usage.input_tokens != null || usage.output_tokens != null) {
+            const tokensInfo = [
+              usage.input_tokens != null ? `Input tokens: ${usage.input_tokens}` : null,
+              usage.output_tokens != null ? `Output tokens: ${usage.output_tokens}` : null,
+              usage.total_tokens != null ? `Total tokens: ${usage.total_tokens}` : null,
+            ].filter(Boolean);
 
-            const responseText =
-              typeof data?.output_text === "string" && data.output_text.trim().length
-                ? data.output_text.trim()
-                : data?.output?.flatMap((item: any) => item?.content || [])
-                    ?.find((part: any) => part?.type === "output_text")?.text;
-
-            assistantReply =
-              typeof responseText === "string" && responseText.trim().length > 0
-                ? responseText.trim()
-                : "پاسخی از مدل دریافت نشد.";
+            if (tokensInfo.length > 0) {
+              usageSummary = tokensInfo.join(" | ");
+            }
           }
         } catch (error) {
           console.error("Failed to call OpenAI API", error);
@@ -115,7 +141,10 @@ export default {
         }
 
         const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const payload = { chat_id: chatId, text: assistantReply };
+        const payload = {
+          chat_id: chatId,
+          text: usageSummary ? `${assistantReply}\n\n${usageSummary}` : assistantReply,
+        };
 
         try {
           const response = await fetch(telegramApiUrl, {
