@@ -124,6 +124,7 @@ export default {
 
         try {
           const openAiResult = await invokeOpenAI(text);
+
           const replyText =
             typeof openAiResult?.answer === "string" && openAiResult.answer.trim().length > 0
               ? openAiResult.answer.trim()
@@ -132,6 +133,13 @@ export default {
           const payload = {
             chat_id: chatId,
             text: replyText,
+
+          const formattedResult = JSON.stringify(openAiResult, null, 2);
+
+          const payload = {
+            chat_id: chatId,
+            text: formattedResult,
+
           };
 
           const response = await fetch(telegramApiUrl, {
