@@ -124,6 +124,14 @@ export default {
 
         try {
           const openAiResult = await invokeOpenAI(text);
+          const answerText =
+            typeof openAiResult?.answer === "string" && openAiResult.answer.trim().length > 0
+              ? openAiResult.answer.trim()
+              : "پاسخی از مدل دریافت نشد.";
+
+          const payload = {
+            chat_id: chatId,
+            text: answerText,
 
           const formattedResult = JSON.stringify(openAiResult, null, 2);
           const trimmedResult =
