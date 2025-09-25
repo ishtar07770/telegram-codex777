@@ -2,7 +2,7 @@
 
 export interface Env {
   TELEGRAM_BOT_TOKEN: string; // configured via wrangler vars
-  WEBHOOK_SECRET?: string; // configured via wrangler vars
+  WEBHOOK_SECRET?: string;    // configured via wrangler vars
   BOT_KV: KVNamespace;
   WEBHOOK_PATH?: string;
   OPENAI_API_KEY: string;
@@ -12,6 +12,25 @@ export interface Env {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+
+    // --- Helper: send long text in safe chunks to Telegram ---
+    const sendTelegramText = async (chatId: number, text: string) => {
+      const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+      const MAX = 4000; // کمی کمتر از محدودیت 4096 تایی تلگرام
+      for (let i = 0; i < text.length; i += MAX) {
+        const chunk = text.slice(i, i + MAX);
+        const resp = await fetch(telegramApiUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: chunk }),
+        });
+        if (!resp.ok) {
+          const errorText = await resp.text();
+          console.error("Telegram sendMessage failed", resp.status, errorText);
+          // ادامه می‌دهیم تا بقیه‌ی تکه‌ها (اگر بود) هم تلاش شوند
+        }
+      }
+    };
 
     const invokeOpenAI = async (prompt: string) => {
       const model = env.OPENAI_MODEL || "gpt-4o-mini";
@@ -54,17 +73,16 @@ export default {
       }
 
       const data: any = await response.json();
-      const outputText =
-        typeof data?.output_text === "string" && data.output_text.trim().length > 0
-          ? data.output_text.trim()
-          : data?.output
-              ?.flatMap((item: any) => item?.content || [])
-              ?.find((part: any) => part?.type === "output_text")?.text;
 
-      const answerText =
-        typeof outputText === "string" && outputText.trim().length > 0
-          ? outputText.trim()
-          : "پاسخی از مدل دریافت نشد.";
+      // اول تلاش می‌کنیم output_text را بگیریم؛ در غیر این صورت از آرایه‌ی output استخراج می‌کنیم
+      const outputText =
+        (typeof data?.output_text === "string" && data.output_text.trim()) ||
+        data?.output
+          ?.flatMap((item: any) => item?.content || [])
+          ?.find((part: any) => part?.type === "output_text")?.text ||
+        "";
+
+      const answerText = outputText.trim() || "پاسخی از مدل دریافت نشد.";
 
       return {
         model,
@@ -93,6 +111,7 @@ export default {
     const webhookPath = env.WEBHOOK_PATH || "/webhook";
 
     if (req.method === "POST" && url.pathname === webhookPath) {
+      // امنیت وبهوک با secret token
       if (env.WEBHOOK_SECRET) {
         const token = req.headers.get("x-telegram-bot-api-secret-token");
         if (token !== env.WEBHOOK_SECRET) {
@@ -100,6 +119,7 @@ export default {
         }
       }
 
+      // خواندن آپدیت تلگرام
       let update: any;
       try {
         update = await req.json();
@@ -120,62 +140,29 @@ export default {
           return new Response("missing openai api key", { status: 500 });
         }
 
-        const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-
         try {
-          const openAiResult = await invokeOpenAI(text);
+          // اگر کاربر /debug فرستاد، خروجی کامل JSON را برگردان (برای عیب‌یابی)
+          const isDebug = text.trim().startsWith("/debug");
+          const prompt = isDebug ? text.replace("/debug", "").trim() || "سلام" : text;
 
-          const formattedResult = JSON.stringify(openAiResult, null, 2);
-          const trimmedResult =
-            formattedResult.length > 4000 ? `${formattedResult.slice(0, 3997)}...` : formattedResult;
+          const openAiResult = await invokeOpenAI(prompt);
 
-          const payload = {
-            chat_id: chatId,
-            text: trimmedResult,
-          };
-
-          const response = await fetch(telegramApiUrl, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Telegram sendMessage failed", response.status, errorText);
+          if (isDebug) {
+            const debugJson = JSON.stringify(openAiResult, null, 2);
+            await sendTelegramText(chatId, debugJson);
           } else {
-            console.log("Sent OpenAI response to Telegram", payload);
+            // ✅ فقط پاسخ مدل را ارسال کن
+            await sendTelegramText(chatId, openAiResult.answer);
           }
+
+          console.log("Sent response to Telegram");
         } catch (error) {
           console.error("Failed to call OpenAI API", error);
-          const fallbackPayload = {
-            chat_id: chatId,
-            text: "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.",
-          };
-
-          try {
-            const response = await fetch(telegramApiUrl, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-              },
-              body: JSON.stringify(fallbackPayload),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text();
-              console.error("Telegram sendMessage failed", response.status, errorText);
-              return new Response("telegram error", { status: 502 });
-            }
-          } catch (telegramError) {
-            console.error("Failed to call Telegram sendMessage", telegramError);
-            return new Response("telegram error", { status: 502 });
-          }
+          await sendTelegramText(chatId, "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.");
+          return new Response("openai error", { status: 502 });
         }
       } else {
-        console.log("No message to echo in update", update);
+        console.log("No message to handle in update", update);
       }
 
       return new Response("ok", { status: 200 });
