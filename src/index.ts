@@ -47,7 +47,7 @@ export default {
           return new Response("missing openai api key", { status: 500 });
         }
 
-        const model = env.OPENAI_MODEL || "gpt-5-mini";
+        const model = env.OPENAI_MODEL || "gpt-4-mini";
         const openaiRequestBody = {
           model,
           input: [
