@@ -49,6 +49,7 @@ export default {
 
         const model = env.OPENAI_MODEL || "gpt-5-mini";
 
+
         const quotaBackoffKey = "openai:quota:block-until";
         const now = Date.now();
         const blockUntilRaw = await env.BOT_KV.get(quotaBackoffKey);
@@ -72,6 +73,11 @@ export default {
 
         const openaiRequestBody = {
           model,
+
+        const openaiRequestBody = {
+          model,
+
+
           input: [
             {
               role: "user",
@@ -83,11 +89,98 @@ export default {
               ],
             },
           ],
+
+          input: [
+            {
+              role: "system",
+              content: [
+                {
+
+                  type: "input_text",
+
+                  text: "You are a helpful AI assistant replying in the same language the user used.",
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+
+                  type: "input_text",
+
+                  text,
+                },
+              ],
+            },
+          ],
+
+
+
           max_output_tokens: 800,
         };
 
         let assistantReply = "";
+
         let quotaExceeded = false;
+
+
+        try {
+          const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify(openaiRequestBody),
+          });
+
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
+            console.error(
+              "OpenAI API request failed",
+              openaiResponse.status,
+              errorText,
+            );
+            assistantReply =
+              "متاسفم، در حال حاضر نمی‌توانم پاسخ بدهم. لطفاً بعداً دوباره تلاش کنید.";
+          } else {
+            const data = await openaiResponse.json();
+
+            const responseText =
+              data?.output_text ||
+              data?.output?.flatMap((item: any) => item?.content || [])
+                ?.find((part: any) => part?.type === "output_text")?.text ||
+
+              data?.output?.[0]?.content?.find(
+                (part: any) => part?.type === "output_text",
+              )?.text;
+
+              data?.output?.[0]?.content?.[0]?.text;
+
+
+            assistantReply =
+              typeof responseText === "string" && responseText.trim().length > 0
+                ? responseText.trim()
+                : "پاسخی از مدل دریافت نشد.";
+
+
+            assistantReply =
+              data?.output_text ||
+              data?.output?.[0]?.content?.[0]?.text ||
+              "پاسخی از مدل دریافت نشد.";
+
+
+          }
+        } catch (error) {
+          console.error("Failed to call OpenAI API", error);
+          assistantReply =
+            "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.";
+        }
+
+        const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+        const payload = { chat_id: chatId, text: assistantReply };
+
 
         try {
           const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
