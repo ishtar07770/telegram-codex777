@@ -5,6 +5,8 @@ export interface Env {
   WEBHOOK_SECRET?: string; // configured via wrangler vars
   BOT_KV: KVNamespace;
   WEBHOOK_PATH?: string;
+  OPENAI_API_KEY: string;
+  OPENAI_MODEL?: string;
 }
 
 export default {
@@ -40,8 +42,55 @@ export default {
       const text = message?.text;
 
       if (chatId && typeof text === "string") {
+        if (!env.OPENAI_API_KEY) {
+          console.error("Missing OPENAI_API_KEY binding");
+          return new Response("missing openai api key", { status: 500 });
+        }
+
+        const model = env.OPENAI_MODEL || "gpt-5-mini";
+
+        const openaiRequestBody = {
+          model,
+          input: text,
+          max_output_tokens: 800,
+        };
+
+        let assistantReply = "";
+
+        try {
+          const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            },
+            body: JSON.stringify(openaiRequestBody),
+          });
+
+          if (!openaiResponse.ok) {
+            const errorText = await openaiResponse.text();
+            console.error(
+              "OpenAI API request failed",
+              openaiResponse.status,
+              errorText,
+            );
+            assistantReply =
+              "متاسفم، در حال حاضر نمی‌توانم پاسخ بدهم. لطفاً بعداً دوباره تلاش کنید.";
+          } else {
+            const data = await openaiResponse.json();
+            assistantReply =
+              data?.output_text ||
+              data?.output?.[0]?.content?.[0]?.text ||
+              "پاسخی از مدل دریافت نشد.";
+          }
+        } catch (error) {
+          console.error("Failed to call OpenAI API", error);
+          assistantReply =
+            "خطایی در برقراری ارتباط با سرویس هوش مصنوعی رخ داد.";
+        }
+
         const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-        const payload = { chat_id: chatId, text };
+        const payload = { chat_id: chatId, text: assistantReply };
 
         try {
           const response = await fetch(telegramApiUrl, {
