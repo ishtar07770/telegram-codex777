@@ -57,7 +57,9 @@ export default {
               role: "system",
               content: [
                 {
-                  type: "text",
+
+                  type: "input_text",
+
                   text: "You are a helpful AI assistant replying in the same language the user used.",
                 },
               ],
@@ -66,7 +68,9 @@ export default {
               role: "user",
               content: [
                 {
-                  type: "text",
+
+                  type: "input_text",
+
                   text,
                 },
               ],
@@ -115,6 +119,7 @@ export default {
               data?.output_text ||
               data?.output?.[0]?.content?.[0]?.text ||
               "پاسخی از مدل دریافت نشد.";
+
 
           }
         } catch (error) {
