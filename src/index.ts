@@ -141,6 +141,42 @@ export default {
         }
 
         try {
+          const DAILY_QUOTA = 20;
+          const now = new Date();
+          const currentDay = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+          const quotaKey = `quota:${chatId}:${currentDay}`;
+
+          const existingCountRaw = await env.BOT_KV.get(quotaKey);
+          const parsedExistingCount = existingCountRaw ? parseInt(existingCountRaw, 10) : 0;
+          const existingCount = Number.isNaN(parsedExistingCount) ? 0 : parsedExistingCount;
+
+          if (existingCount >= DAILY_QUOTA) {
+            console.log("Daily quota exceeded", { chatId, existingCount, DAILY_QUOTA });
+            await sendTelegramText(
+              chatId,
+              `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است. لطفاً فردا دوباره تلاش کنید.`
+            );
+            return new Response("daily quota exceeded", { status: 200 });
+          }
+
+          const ttlSecondsUntilTomorrow = (() => {
+            const tomorrowUtcMidnight = new Date(Date.UTC(
+              now.getUTCFullYear(),
+              now.getUTCMonth(),
+              now.getUTCDate() + 1,
+              0,
+              0,
+              0,
+              0
+            ));
+            const diffMs = tomorrowUtcMidnight.getTime() - now.getTime();
+            return Math.max(1, Math.ceil(diffMs / 1000));
+          })();
+
+          await env.BOT_KV.put(quotaKey, (existingCount + 1).toString(), {
+            expirationTtl: ttlSecondsUntilTomorrow,
+          });
+
           // اگر کاربر /debug فرستاد، خروجی کامل JSON را برگردان (برای عیب‌یابی)
           const isDebug = text.trim().startsWith("/debug");
           const prompt = isDebug ? text.replace("/debug", "").trim() || "سلام" : text;
