@@ -150,6 +150,7 @@ export default {
           const parsedExistingCount = existingCountRaw ? parseInt(existingCountRaw, 10) : 0;
           const existingCount = Number.isNaN(parsedExistingCount) ? 0 : parsedExistingCount;
 
+
           const trimmedText = text.trim();
 
           const respondWithQuotaStatus = async () => {
@@ -167,11 +168,16 @@ export default {
             return new Response("quota status sent", { status: 200 });
           }
 
+
           if (existingCount >= DAILY_QUOTA) {
             console.log("Daily quota exceeded", { chatId, existingCount, DAILY_QUOTA });
             await sendTelegramText(
               chatId,
+
               `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است و شما امروز ${existingCount} پیام مصرف کرده‌اید. لطفاً فردا دوباره تلاش کنید.`
+
+              `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است. لطفاً فردا دوباره تلاش کنید.`
+
             );
             return new Response("daily quota exceeded", { status: 200 });
           }
