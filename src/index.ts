@@ -7,6 +7,8 @@ export interface Env {
   WEBHOOK_PATH?: string;
   OPENAI_API_KEY: string;
   OPENAI_MODEL?: string;
+  OPENAI_VOICE_MODEL?: string;
+  OPENAI_VOICE?: string;
 }
 
 export default {
@@ -29,6 +31,31 @@ export default {
           console.error("Telegram sendMessage failed", resp.status, errorText);
           // ادامه می‌دهیم تا بقیه‌ی تکه‌ها (اگر بود) هم تلاش شوند
         }
+      }
+    };
+
+    const sendTelegramVoice = async (
+      chatId: number,
+      audioBuffer: ArrayBuffer,
+      caption?: string
+    ) => {
+      const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendVoice`;
+      const formData = new FormData();
+      formData.append("chat_id", chatId.toString());
+      const voiceBlob = new Blob([audioBuffer], { type: "audio/ogg" });
+      formData.append("voice", voiceBlob, "response.ogg");
+      if (caption) {
+        formData.append("caption", caption);
+      }
+
+      const resp = await fetch(telegramApiUrl, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!resp.ok) {
+        const errorText = await resp.text();
+        console.error("Telegram sendVoice failed", resp.status, errorText);
       }
     };
 
@@ -104,6 +131,37 @@ export default {
       };
     };
 
+    const synthesizeVoice = async (text: string) => {
+      const trimmedText = text.trim();
+      if (!trimmedText) {
+        throw new Error("Cannot synthesize empty text");
+      }
+
+      const voiceModel = env.OPENAI_VOICE_MODEL || "gpt-4o-mini-tts";
+      const voiceName = env.OPENAI_VOICE || "alloy";
+
+      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: voiceModel,
+          voice: voiceName,
+          input: trimmedText,
+          response_format: "opus",
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenAI TTS request failed (${response.status}): ${errorText}`);
+      }
+
+      return await response.arrayBuffer();
+    };
+
     if (req.method === "GET" && url.pathname === "/") {
       return new Response("ok", { status: 200 });
     }
@@ -173,11 +231,7 @@ export default {
             console.log("Daily quota exceeded", { chatId, existingCount, DAILY_QUOTA });
             await sendTelegramText(
               chatId,
-
               `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است و شما امروز ${existingCount} پیام مصرف کرده‌اید. لطفاً فردا دوباره تلاش کنید.`
-
-              `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است. لطفاً فردا دوباره تلاش کنید.`
-
             );
             return new Response("daily quota exceeded", { status: 200 });
           }
@@ -211,7 +265,14 @@ export default {
             await sendTelegramText(chatId, debugJson);
           } else {
             // ✅ فقط پاسخ مدل را ارسال کن
-            await sendTelegramText(chatId, openAiResult.answer);
+            const disclosure = "🔈 این صدا توسط هوش مصنوعی تولید شده است.";
+            await sendTelegramText(chatId, `${openAiResult.answer}\n\n${disclosure}`);
+            try {
+              const voiceBuffer = await synthesizeVoice(openAiResult.answer);
+              await sendTelegramVoice(chatId, voiceBuffer, disclosure);
+            } catch (voiceError) {
+              console.error("Failed to synthesize or send voice", voiceError);
+            }
           }
 
           console.log("Sent response to Telegram");
