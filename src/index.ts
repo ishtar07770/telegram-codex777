@@ -32,7 +32,50 @@ export default {
       }
     };
 
-    const invokeOpenAI = async (prompt: string) => {
+    type Tone = "friendly" | "formal" | "technical";
+    interface UserSettings {
+      tone: Tone;
+    }
+
+    const DEFAULT_SETTINGS: UserSettings = {
+      tone: "friendly",
+    };
+
+    const getSettingsKey = (chatId: number) => `settings:${chatId}`;
+
+    const loadUserSettings = async (chatId: number): Promise<UserSettings> => {
+      const raw = await env.BOT_KV.get(getSettingsKey(chatId));
+      if (!raw) return { ...DEFAULT_SETTINGS };
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.tone === "string") {
+          const tone = parsed.tone.toLowerCase();
+          if (tone === "friendly" || tone === "formal" || tone === "technical") {
+            return { tone };
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to parse user settings", err);
+      }
+      return { ...DEFAULT_SETTINGS };
+    };
+
+    const saveUserSettings = async (chatId: number, settings: UserSettings) => {
+      await env.BOT_KV.put(getSettingsKey(chatId), JSON.stringify(settings));
+    };
+
+    const toneSystemInstruction = (tone: Tone) => {
+      switch (tone) {
+        case "formal":
+          return "Use a respectful and formal tone with structured explanations.";
+        case "technical":
+          return "Use precise technical terminology and provide detailed, step-by-step explanations.";
+        default:
+          return "Be friendly, encouraging, and easy to understand.";
+      }
+    };
+
+    const invokeOpenAI = async (prompt: string, tone: Tone) => {
       const model = env.OPENAI_MODEL || "gpt-4o-mini";
       const openaiRequestBody = {
         model,
@@ -42,7 +85,9 @@ export default {
             content: [
               {
                 type: "input_text",
-                text: "You are a helpful AI assistant replying in the same language the user used.",
+                text:
+                  "You are a helpful AI assistant replying in the same language the user used. " +
+                  toneSystemInstruction(tone),
               },
             ],
           },
@@ -152,6 +197,49 @@ export default {
 
 
           const trimmedText = text.trim();
+          const userSettings = await loadUserSettings(chatId);
+
+          const respondWithHelp = async () => {
+            const helpLines = [
+              "دستورات در دسترس:",
+              "/start - نمایش پیام خوش‌آمد و راهنمای شروع",
+              "/help - نمایش همین راهنما",
+              "/settings - نمایش تنظیمات فعلی کاربر",
+              "/settings_tone [formal|friendly|technical] - تغییر لحن پاسخ‌گویی ربات",
+              "/quota - مشاهدهٔ تعداد پیام‌های مصرف‌شده امروز",
+            ];
+            await sendTelegramText(chatId, helpLines.join("\n"));
+          };
+
+          const respondWithSettings = async (existingCountForToday: number) => {
+            const remaining = Math.max(0, DAILY_QUOTA - existingCountForToday);
+            const messageLines = [
+              "تنظیمات فعلی شما:",
+              `لحن: ${
+                userSettings.tone === "formal"
+                  ? "رسمی"
+                  : userSettings.tone === "technical"
+                  ? "فنی"
+                  : "صمیمی"
+              }`,
+              `مدل: ${env.OPENAI_MODEL || "gpt-4o-mini"}`,
+              `پیام‌های امروز: ${existingCountForToday}/${DAILY_QUOTA} (باقی‌مانده: ${remaining})`,
+            ];
+            await sendTelegramText(chatId, messageLines.join("\n"));
+          };
+
+          if (trimmedText === "/start") {
+            await sendTelegramText(
+              chatId,
+              "سلام! من دستیار هوش مصنوعی شما با قدرت GPT-5 Pro هستم. هر سؤالی دارید بپرسید یا برای دیدن راهنما دستور /help را ارسال کنید."
+            );
+            return new Response("start sent", { status: 200 });
+          }
+
+          if (trimmedText === "/help") {
+            await respondWithHelp();
+            return new Response("help sent", { status: 200 });
+          }
 
           const respondWithQuotaStatus = async () => {
             const remaining = Math.max(0, DAILY_QUOTA - existingCount);
@@ -168,16 +256,45 @@ export default {
             return new Response("quota status sent", { status: 200 });
           }
 
+          if (trimmedText === "/settings") {
+            await respondWithSettings(existingCount);
+            return new Response("settings sent", { status: 200 });
+          }
+
+          if (trimmedText.startsWith("/settings_tone")) {
+            const parts = trimmedText.split(/\s+/);
+            const newTone = (parts[1] || "").toLowerCase();
+            const allowedTones: Tone[] = ["formal", "friendly", "technical"];
+            if (!newTone || !allowedTones.includes(newTone as Tone)) {
+              await sendTelegramText(
+                chatId,
+                "برای تغییر لحن، یکی از گزینه‌های زیر را استفاده کنید:\n/settings_tone formal\n/settings_tone friendly\n/settings_tone technical"
+              );
+              return new Response("invalid tone", { status: 200 });
+            }
+
+            const updatedSettings: UserSettings = {
+              tone: newTone as Tone,
+            };
+            await saveUserSettings(chatId, updatedSettings);
+
+            const toneDescription =
+              newTone === "formal"
+                ? "لحن رسمی فعال شد. پاسخ‌ها محترمانه و ساختارمند خواهند بود."
+                : newTone === "technical"
+                ? "لحن فنی فعال شد. پاسخ‌ها با اصطلاحات دقیق و توضیحات جزئی ارائه می‌شوند."
+                : "لحن صمیمی فعال شد. پاسخ‌ها دوستانه و ساده بیان می‌شوند.";
+
+            await sendTelegramText(chatId, toneDescription);
+            return new Response("tone updated", { status: 200 });
+          }
+
 
           if (existingCount >= DAILY_QUOTA) {
             console.log("Daily quota exceeded", { chatId, existingCount, DAILY_QUOTA });
             await sendTelegramText(
               chatId,
-
               `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است و شما امروز ${existingCount} پیام مصرف کرده‌اید. لطفاً فردا دوباره تلاش کنید.`
-
-              `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است. لطفاً فردا دوباره تلاش کنید.`
-
             );
             return new Response("daily quota exceeded", { status: 200 });
           }
@@ -204,7 +321,7 @@ export default {
           const isDebug = trimmedText.startsWith("/debug");
           const prompt = isDebug ? trimmedText.replace("/debug", "").trim() || "سلام" : text;
 
-          const openAiResult = await invokeOpenAI(prompt);
+          const openAiResult = await invokeOpenAI(prompt, userSettings.tone);
 
           if (isDebug) {
             const debugJson = JSON.stringify(openAiResult, null, 2);
