@@ -150,11 +150,34 @@ export default {
           const parsedExistingCount = existingCountRaw ? parseInt(existingCountRaw, 10) : 0;
           const existingCount = Number.isNaN(parsedExistingCount) ? 0 : parsedExistingCount;
 
+
+          const trimmedText = text.trim();
+
+          const respondWithQuotaStatus = async () => {
+            const remaining = Math.max(0, DAILY_QUOTA - existingCount);
+            const messageLines = [
+              `سهمیهٔ امروز شما: ${existingCount} از ${DAILY_QUOTA} پیام مصرف شده است.`,
+              `پیام‌های باقی‌مانده برای امروز: ${remaining}.`,
+              "سهمیهٔ روزانه در نیمه‌شب UTC (حدود ساعت ۳:۳۰ به وقت ایران) مجدداً شارژ می‌شود.",
+            ];
+            await sendTelegramText(chatId, messageLines.join("\n"));
+          };
+
+          if (trimmedText === "/quota" || trimmedText.startsWith("/quota ")) {
+            await respondWithQuotaStatus();
+            return new Response("quota status sent", { status: 200 });
+          }
+
+
           if (existingCount >= DAILY_QUOTA) {
             console.log("Daily quota exceeded", { chatId, existingCount, DAILY_QUOTA });
             await sendTelegramText(
               chatId,
+
+              `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است و شما امروز ${existingCount} پیام مصرف کرده‌اید. لطفاً فردا دوباره تلاش کنید.`
+
               `سقف استفادهٔ رایگان روزانه ${DAILY_QUOTA} پیام است. لطفاً فردا دوباره تلاش کنید.`
+
             );
             return new Response("daily quota exceeded", { status: 200 });
           }
@@ -178,8 +201,8 @@ export default {
           });
 
           // اگر کاربر /debug فرستاد، خروجی کامل JSON را برگردان (برای عیب‌یابی)
-          const isDebug = text.trim().startsWith("/debug");
-          const prompt = isDebug ? text.replace("/debug", "").trim() || "سلام" : text;
+          const isDebug = trimmedText.startsWith("/debug");
+          const prompt = isDebug ? trimmedText.replace("/debug", "").trim() || "سلام" : text;
 
           const openAiResult = await invokeOpenAI(prompt);
 
