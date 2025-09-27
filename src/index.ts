@@ -34,12 +34,25 @@ export default {
       }
     };
 
+
+    const sendTelegramVoice = async (
+      chatId: number,
+      audioBuffer: ArrayBuffer,
+      caption?: string
+    ) => {
+
     const sendTelegramVoice = async (chatId: number, audioBuffer: ArrayBuffer) => {
+
       const telegramApiUrl = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendVoice`;
       const formData = new FormData();
       formData.append("chat_id", chatId.toString());
       const voiceBlob = new Blob([audioBuffer], { type: "audio/ogg" });
       formData.append("voice", voiceBlob, "response.ogg");
+
+      if (caption) {
+        formData.append("caption", caption);
+      }
+
 
       const resp = await fetch(telegramApiUrl, {
         method: "POST",
@@ -143,7 +156,11 @@ export default {
           model: voiceModel,
           voice: voiceName,
           input: trimmedText,
+
+          response_format: "opus",
+
           format: "ogg",
+
         }),
       });
 
@@ -258,10 +275,18 @@ export default {
             await sendTelegramText(chatId, debugJson);
           } else {
             // ✅ فقط پاسخ مدل را ارسال کن
+
+            const disclosure = "🔈 این صدا توسط هوش مصنوعی تولید شده است.";
+            await sendTelegramText(chatId, `${openAiResult.answer}\n\n${disclosure}`);
+            try {
+              const voiceBuffer = await synthesizeVoice(openAiResult.answer);
+              await sendTelegramVoice(chatId, voiceBuffer, disclosure);
+
             await sendTelegramText(chatId, openAiResult.answer);
             try {
               const voiceBuffer = await synthesizeVoice(openAiResult.answer);
               await sendTelegramVoice(chatId, voiceBuffer);
+
             } catch (voiceError) {
               console.error("Failed to synthesize or send voice", voiceError);
             }
